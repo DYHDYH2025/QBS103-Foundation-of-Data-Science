@@ -1,0 +1,124 @@
+---
+title: "sub1"
+output:
+  pdf_document: default
+  html_document: default
+date: "2025-07-15"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+library(tidyr) 
+library(readr)
+```
+```{r}
+
+
+# read data sets
+genes_data <- read_csv("D:/2025_summer/R/QBS103_GSE157103_genes.csv", show_col_types = FALSE)  # 
+series_matrix <- read_csv("D:/2025_summer/R/QBS103_GSE157103_series_matrix-1.csv", show_col_types = FALSE)       # 
+head(genes_data, 3)
+head(series_matrix,3)
+```
+
+
+```{r}
+# Subset gene of interest: ABCA1
+df <- expr_long %>%
+  filter(gene == "ABCA1") %>%                     # 使用 ABCA1
+  left_join(series_matrix_clean, by = "participant_id") %>%
+  drop_na(age, disease_status, icu_status) %>%
+  mutate(group = paste(disease_status, icu_status, sep = "_"))  # 合并两个分类变量
+
+# Boxplot: ABCA1 expression by combined disease_status and icu_status
+p_box <- ggplot(df,
+                aes(x = group,
+                    y = expression,
+                    fill = icu_status)) +
+  geom_boxplot(outlier.size = 1) +
+  scale_fill_brewer(palette = "Set2", name = "ICU Status") +
+  labs(
+    title = "ABCA1 Expression by Disease Status and ICU Admission",
+    x     = "Disease_ICU",
+    y     = "ABCA1 Expression"
+  ) +
+  theme_minimal()
+print(p_box)
+
+# Histogram for ABCA1 expression
+p_hist <- ggplot(df, aes(x = expression)) +
+  geom_histogram(binwidth = 0.1,
+                 fill = "#2c7fb8",
+                 color = "white") +
+  labs(
+    title = "Histogram of ABCA1 Expression",
+    x     = "ABCA1 Expression",
+    y     = "Sample Count"
+  ) +
+  theme_minimal()
+
+print(p_hist)
+
+
+```
+
+
+
+```{r}
+# clean
+series_matrix_clean <- series_matrix %>%
+  mutate(
+    disease_status = case_when(
+      str_detect(disease_status, "COVID-19") ~ "COVID-19",
+      str_detect(disease_status, "non-COVID") ~ "non-COVID",
+      TRUE ~ disease_status
+    ),
+    disease_status = factor(disease_status, levels = c("non-COVID", "COVID-19")),
+    icu_status = factor(icu_status, levels = c("no", "yes")),
+    sex = factor(sex, levels = c("male", "female")),  # 
+    age = as.numeric(age),
+    crp = as.numeric(`crp(mg/l)`)  # 
+  ) %>%
+  select(participant_id, age, sex, disease_status, icu_status, crp)
+
+# change data format
+expr_long <- genes_data %>%
+  pivot_longer(
+    cols = -gene,
+    names_to = "participant_id",
+    values_to = "expression"
+  )
+
+# ABCA1,CRP,sex
+df_abca1 <- expr_long %>%
+  filter(gene == "ABCA1") %>%  # 
+  left_join(series_matrix_clean, by = "participant_id") %>%
+  drop_na(crp, sex)  # delete miss
+
+# print the scatterplot
+p_scatter_crp <- ggplot(df_abca1, aes(x = crp, y = expression, color = sex)) +
+  geom_point(size = 3, alpha = 0.7) +
+  geom_smooth(method = "lm", se = FALSE, linewidth = 1) +  # trend line
+  scale_color_manual(values = c("male" = "#1f77b4", "female" = "#ff7f0e")) +  # color
+  labs(
+    title = "ABCA1 Expression vs. CRP (Inflammation Marker)",
+    subtitle = "Stratified by Sex",
+    x = "C-reactive Protein (CRP, mg/L)",
+    y = "ABCA1 Expression Level",
+    color = "Sex"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    legend.position = "top",
+    plot.title = element_text(face = "bold")
+  )
+
+# show
+print(p_scatter_crp)
+
+```
+

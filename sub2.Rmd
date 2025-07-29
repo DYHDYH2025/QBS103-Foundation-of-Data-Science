@@ -1,0 +1,146 @@
+---
+title: "Submission 2"
+author: "Yihe"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    toc: true
+    toc_depth: '2'
+  html_document:
+    toc: true
+    toc_depth: 2
+    code_folding: hide
+    fig_caption: true
+---
+
+```{r setup, include=TRUE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+library(tidyr) 
+library(readr)
+
+
+
+
+
+
+
+# Import data
+genes_data   <- read_csv("D:/2025_summer/R/QBS103_GSE157103_genes.csv",
+                         show_col_types = FALSE)
+series_matrix <- read_csv("D:/2025_summer/R/QBS103_GSE157103_series_matrix-1.csv",
+                          show_col_types = FALSE)
+
+# Pivot gene expression to long format
+expr_long <- genes_data %>%
+  pivot_longer(
+    cols      = -1,
+    names_to  = "participant_id",
+    values_to = "expression"
+  ) %>%
+  rename(gene = 1)
+
+# Clean metadata: rename CRP column, parse it, trim factors
+meta_df <- series_matrix %>%
+  rename(crp = `crp(mg/l)`) %>%
+  mutate(
+    crp        = parse_number(crp),
+    sex        = factor(str_trim(sex)),
+    icu_status = factor(str_trim(icu_status), levels = c("no", "yes"))
+  ) %>%
+  select(participant_id, crp, sex, icu_status)
+
+#  Define the plotting function
+plot_gene_plots <- function(data, gene_list,
+                            cont_var, cat_var1, cat_var2) {
+  # Filter to genes and drop missing covariates
+  df <- data %>%
+    filter(gene %in% gene_list) %>%
+    drop_na(all_of(c(cont_var, cat_var1, cat_var2)))
+  
+  if (nrow(df) == 0) {
+    stop("No data to plot: check your gene names or covariates.")
+  }
+  
+  for (g in gene_list) {
+    sub <- df %>% filter(gene == g)
+    
+    # 1. Histogram of expression
+    p_hist <- ggplot(sub, aes(x = expression)) +
+      geom_histogram(binwidth = 0.1,
+                     fill    = "#2c7fb8",
+                     color   = "white") +
+      labs(title = paste("Histogram of", g, "Expression"),
+           x     = paste(g, "Expression"),
+           y     = "Count") +
+      theme_minimal()
+    print(p_hist)
+    
+    # 2. Scatterplot vs continuous covariate
+    p_scatter <- ggplot(sub,
+                        aes_string(x     = cont_var,
+                                   y     = "expression",
+                                   color = cat_var1,
+                                   shape = cat_var2)) +
+      geom_point(size  = 2.5,
+                 alpha = 0.7) +
+      geom_smooth(method = "lm",
+                  se     = FALSE,
+                  linetype = "dashed",
+                  color   = "gray30") +
+      labs(title = paste(g, "Expression vs", cont_var),
+           x     = cont_var,
+           y     = paste(g, "Expression"),
+           color = cat_var1,
+           shape = cat_var2) +
+      theme_minimal()
+    print(p_scatter)
+    
+    # 3. Boxplot by two categorical covariates
+    p_box <- ggplot(sub,
+                    aes_string(x    = cat_var1,
+                               y    = "expression",
+                               fill = cat_var2)) +
+      geom_boxplot(outlier.size = 1) +
+      scale_fill_brewer(palette = "Set2",
+                        name    = cat_var2) +
+      labs(title = paste(g, "Expression by", cat_var1, "&", cat_var2),
+           x     = cat_var1,
+           y     = paste(g, "Expression")) +
+      theme_minimal()
+    print(p_box)
+  }
+}
+
+#  Merge expr_long + meta_df
+merged_df <- expr_long %>%
+  left_join(meta_df, by = "participant_id")
+
+# Call the function for your genes
+plot_gene_plots(
+  data      = merged_df,
+  gene_list = c("ABCA1"), # gene name
+  cont_var  = "crp", # continuous covariate
+  cat_var1  = "sex", # categorical
+  cat_var2  = "icu_status" # categorical
+)
+
+
+
+
+```
+```{r}
+genes_list <- c("ABCA1", "A2M", "A1BG") # list of genes
+for (gene in genes_list) {
+  plot_gene_plots(
+    data      = merged_df,
+    gene_list = gene,
+    cont_var  = "crp",
+    cat_var1  = "sex",
+    cat_var2  = "icu_status"
+  )
+}
+```
