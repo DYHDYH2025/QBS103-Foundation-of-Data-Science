@@ -39,3 +39,4 @@ Select 2 additional genes (for a total of 3 genes) to look at and implement a lo
 Present one of your boxplots in class. Be prepared to explain the gene and covariates you chose and comment on the distribution as if you were presenting your research findings. No slides are required, just bring your plot. In class, be prepared to provide constructive feedback for your classmates (5 pts)
 
 - Final Submission
+  Final submission contains all materials for the final project submission, including analysis files, output documents, code scripts, and visualization assets. The project focuses on statistical analysis of gene-related data, with a focus on covariates, gene expression patterns, and data visualization.
