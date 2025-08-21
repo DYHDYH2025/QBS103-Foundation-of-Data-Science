@@ -1,0 +1,450 @@
+---
+title: "FINAL PROJECT"
+author: "DYH"
+date: "2025-08-21"
+output:
+  word_document: default
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+# INSTALLATION BLOCK
+# Note: Including dependencies=TRUE ensures all required packages are installed
+#install.packages("gtsummary", dependencies = TRUE)
+#install.packages("janitor")
+```
+
+```{r libraries_data}
+# LOAD LIBRARIES AND IMPORT DATA
+library(tidyverse)    # Core data science suite: dplyr, tidyr, ggplot2, readr etc.
+library(janitor)      # Data cleaning (clean_names, etc.)
+library(gtsummary)    # Generate summary tables (supports LaTeX output)
+library(kableExtra)   # Enhanced table formatting (supports booktabs, striped LaTeX options)
+
+# DATA IMPORT
+# Using show_col_types=FALSE suppresses column type messages
+genes_data <- read_csv("QBS103_GSE157103_genes.csv",
+                       show_col_types = FALSE)
+series_matrix <- read_csv("QBS103_GSE157103_series_matrix.csv",
+                          show_col_types = FALSE)
+```
+
+```{r data_cleaning}
+# DATA CLEANING AND PREPARATION
+series_matrix_clean <- series_matrix %>%
+  clean_names() %>%
+  mutate(
+    ## Age processing
+    age_years = case_when(
+      !is.na(age) & str_detect(age, "^>\\s*89") ~ 90,  # Handle ">89" cases
+      TRUE ~ suppressWarnings(as.numeric(str_extract(age, "\\d+")))
+    ),
+    ## Gender standardization
+    sex = str_to_title(str_trim(sex)),
+    ## ICU status factor
+    icu_status = factor(icu_status,
+                        levels = c("no", "yes"),
+                        labels = c("Non-ICU", "ICU")),
+    ## CRP cleaning
+    crp_mg_l = na_if(crp_mg_l, "unknown"),
+    crp_mg_l = readr::parse_number(as.character(crp_mg_l)),
+    ## Disease classification
+    disease_status = if_else(str_detect(disease_status, "COVID-19"),
+                             "COVID-19", "Non-COVID-19")
+  )
+
+# Variable classification
+cont_vars <- c("age_years", "crp_mg_l")  # Continuous variables
+cat_vars  <- c("sex", "disease_status")  # Categorical variables
+
+# Prepare table data
+tab_df <- series_matrix_clean %>%
+  select(icu_status, all_of(cont_vars), all_of(cat_vars))
+
+# GENERATE SUMMARY TABLE
+tbl <- tbl_summary(
+  data = tab_df,
+  by = icu_status,  # Stratify by ICU status
+  statistic = list(
+    all_categorical() ~ "{n} ({p}%)",            # Categorical format
+    age_years ~ "{mean} ({sd}); {median} [{p25}, {p75}]",  # Continuous format
+    crp_mg_l  ~ "{mean} ({sd}); {median} [{p25}, {p75}]"
+  ),
+  label = list(  # Improved labels with type indication
+    age_years      ~ "Age (years) (Continuous)",
+    crp_mg_l       ~ "CRP (mg/L) (Continuous)",
+    sex            ~ "Sex (Categorical)",
+    disease_status ~ "Disease status (Categorical)"
+  ),
+  missing_text = "Missing"  # Explicit missing data handling
+) %>%
+  add_n() %>%  # Add sample size column
+  add_p(test = list(  # Statistical tests
+    all_categorical() ~ "chisq.test",
+    all_continuous()  ~ "wilcox.test"
+  )) %>%
+  modify_header(label ~ "**Variable**") %>%  # Format header
+  bold_labels()  # Emphasize labels
+
+# PREVIEW IN RSTUDIO
+tbl  # Display HTML table in Viewer
+```
+
+```{r latex_output}
+# LATEX TABLE OUTPUT
+tbl %>%
+  as_kable_extra(
+    format = "latex",
+    booktabs = TRUE,    # Professional table formatting
+    linesep = "",       # Remove extra line spacing
+    latex_options = c("hold_position", "striped")  # Table positioning and styling
+  )
+```
+
+## Publication Quality Visualizations
+
+```{r publication_plots}
+# PUBLICATION-QUALITY PLOTS
+library(tidyverse)
+library(RColorBrewer)
+
+# REIMPORT DATA FOR FRESH START
+genes_data   <- read_csv("QBS103_GSE157103_genes.csv",
+                         show_col_types = FALSE)
+series_matrix <- read_csv("QBS103_GSE157103_series_matrix.csv",
+                          show_col_types = FALSE)
+
+# RESHAPE GENE DATA TO LONG FORMAT
+expr_long <- genes_data %>%
+  pivot_longer(
+    cols      = -1,
+    names_to  = "participant_id",
+    values_to = "expression"
+  ) %>%
+  rename(gene = 1)
+
+# CLEAN METADATA
+meta_df <- series_matrix %>%
+  rename(crp = `crp(mg/l)`) %>%
+  mutate(
+    crp        = parse_number(crp),
+    sex        = factor(str_trim(sex)),
+    icu_status = factor(str_trim(icu_status),
+                        levels = c("no", "yes"),
+                        labels = c("No ICU", "ICU"))
+  ) %>%
+  select(participant_id, crp, sex, icu_status)
+
+# PLOTTING FUNCTION DEFINITION
+plot_gene_plots <- function(data, gene_list,
+                            cont_var, cat_var1, cat_var2) {
+  # Filter and clean data
+  df <- data %>%
+    filter(gene %in% gene_list) %>%
+    drop_na(all_of(c(cont_var, cat_var1, cat_var2)))
+  
+  if (nrow(df) == 0) stop("No data to plot: check gene names or covariates.")
+  
+  # Generate plots for each gene
+  for (g in gene_list) {
+    sub <- df %>% filter(gene == g)
+    
+    # 1. HISTOGRAM WITH DENSITY
+    p_hist <- ggplot(sub, aes(x = expression)) +
+      geom_histogram(aes(y = ..density..),
+                     bins = 30, fill = "#2c7fb8",
+                     color = "white", alpha = 0.85) +
+      geom_density(color = "#08306b", size = 1, alpha = 0.7) +
+      geom_vline(aes(xintercept = mean(expression, na.rm = TRUE)),
+                 color = "red", linetype = "dashed", size = 1) +
+      annotate("text",
+               x = mean(sub$expression, na.rm = TRUE),
+               y = 0,
+               label = paste0("Mean = ",
+                              round(mean(sub$expression, na.rm = TRUE), 2)),
+               vjust = -1, hjust = 0, color = "red", size = 4) +
+      labs(title = paste("Distribution of", g, "Expression"),
+           x     = paste(g, "Expression"),
+           y     = "Density") +
+      theme_classic(base_size = 14) +
+      theme(
+        plot.title = element_text(face = "bold", hjust = 0.5),
+        axis.text  = element_text(color = "black")
+      )
+    print(p_hist)
+    
+    # 2. SCATTERPLOT WITH TRENDLINE
+    p_scatter <- ggplot(sub,
+                        aes_string(x     = cont_var,
+                                   y     = "expression",
+                                   color = cat_var1,
+                                   shape = cat_var2)) +
+      geom_point(size  = 2.8, alpha = 0.75) +
+      geom_smooth(method = "lm", se = FALSE,
+                  linetype = "dashed", color = "gray30", size = 0.8) +
+      labs(
+        title = paste0(g, " Expression vs ", toupper(cont_var)),
+        subtitle = paste("Colored by", tools::toTitleCase(cat_var1),
+                         "and shaped by ICU Status"),
+        x     = paste0(tools::toTitleCase(cont_var), " (mg/L)"),
+        y     = paste(g, "Expression"), 
+        color = tools::toTitleCase(cat_var1),
+        shape = "ICU Status"
+      ) +
+      scale_color_brewer(palette = "Set1") +  # Colorblind-friendly palette
+      scale_shape_manual(values = c(16, 17)) +  # Distinct shapes
+      theme_bw(base_size = 14) +
+      theme(
+        plot.title    = element_text(face = "bold", hjust = 0.5, size = 16),
+        plot.subtitle = element_text(hjust = 0.5, size = 12, color = "gray30"),
+        legend.position = "right"
+      )
+    print(p_scatter)
+    
+    # 3. BOXPLOT WITH JITTER
+    p_box <- ggplot(sub,
+                    aes_string(x    = cat_var1,
+                               y    = "expression",
+                               fill = cat_var2)) +
+      geom_boxplot(outlier.size = 1, alpha = 0.85) +
+      geom_jitter(width = 0.15, alpha = 0.5, size = 1) +
+      scale_fill_brewer(palette = "Set2", name = "ICU Status") +
+      labs(
+        title = paste0(g, " Expression by ", tools::toTitleCase(cat_var1),
+                       " and ICU Status"),
+        subtitle = "Boxplots show median & IQR; points show individual samples",
+        x     = tools::toTitleCase(cat_var1),
+        y     = paste(g, "Expression")
+      ) +
+      theme_minimal(base_size = 14) +
+      theme(
+        plot.title    = element_text(face = "bold", hjust = 0.5, size = 16),
+        plot.subtitle = element_text(hjust = 0.5, size = 12, color = "gray30"),
+        legend.position = "top",
+        legend.title    = element_text(face = "bold")
+      )
+    print(p_box)
+  }
+}
+
+# MERGE EXPRESSION AND METADATA
+merged_df <- expr_long %>%
+  left_join(meta_df, by = "participant_id")
+
+# GENERATE ABCA1 PLOTS
+plot_gene_plots(
+  data      = merged_df,
+  gene_list = c("ABCA1"),  # Focus on ABCA1 gene
+  cont_var  = "crp",       # Continuous variable
+  cat_var1  = "sex",       # Primary categorical
+  cat_var2  = "icu_status" # Secondary categorical
+)
+```
+
+## Heatmap Visualization
+
+```{r heatmap}
+# HEATMAP OF TOP VARIABLE GENES
+library(dplyr)
+library(pheatmap)
+library(RColorBrewer)
+
+# 1. DATA IMPORT
+genes_df  <- read.csv("QBS103_GSE157103_genes.csv", check.names = FALSE, row.names = 1)
+series_df <- read.csv("QBS103_GSE157103_series_matrix.csv", check.names = FALSE)
+
+# 2. EXPRESSION MATRIX PREPARATION
+expr_mat <- as.data.frame(t(genes_df))  # Transpose to samples x genes
+expr_mat <- mutate_all(expr_mat, function(x) as.numeric(as.character(x)))
+
+# Sample alignment
+common_ids <- intersect(rownames(expr_mat), series_df$participant_id)
+expr_mat   <- expr_mat[common_ids, , drop = FALSE]
+series_df  <- series_df[match(common_ids, series_df$participant_id), , drop = FALSE]
+
+# 3. METADATA CLEANING
+series_df$sex        <- tolower(trimws(series_df$sex))
+series_df$icu_status <- tolower(trimws(series_df$icu_status))
+
+# Standardize values
+series_df$sex <- case_when(
+  series_df$sex == "male"   ~ "Male",
+  series_df$sex == "female" ~ "Female",
+  TRUE ~ "Unknown"
+)
+
+series_df$icu_status <- ifelse(series_df$icu_status == "yes", "ICU", "Non-ICU")
+
+# Prepare annotation data
+rownames(series_df) <- series_df$participant_id
+anno_row <- series_df[, c("icu_status", "sex"), drop = FALSE]
+
+# Filter unknown genders
+keep_idx <- anno_row$sex %in% c("Male", "Female") & !is.na(anno_row$sex)
+expr_mat <- expr_mat[keep_idx, , drop = FALSE]
+anno_row <- droplevels(anno_row[keep_idx, , drop = FALSE])
+
+# 4. SELECT TOP VARIABLE GENES
+N <- 10  # Number of top genes to display
+gene_vars <- apply(expr_mat, 2, var, na.rm = TRUE)
+top_genes <- names(sort(gene_vars, decreasing = TRUE))[seq_len(min(N, length(gene_vars)))]
+expr_mat  <- expr_mat[, top_genes, drop = FALSE]
+
+# 5. MISSING VALUE IMPUTATION
+for (i in seq_len(nrow(expr_mat))) {
+  if (anyNA(expr_mat[i, ])) {
+    row_mean <- mean(expr_mat[i, ], na.rm = TRUE)
+    expr_mat[i, is.na(expr_mat[i, ])] <- row_mean
+  }
+}
+
+# 6. HEATMAP VISUALIZATION
+ann_colors <- list(
+  icu_status = c("Non-ICU" = "#1f78b4", "ICU" = "#e31a1c"),  # Blue/Red
+  sex        = c("Male" = "#33a02c", "Female" = "#6a3d9a")   # Green/Purple
+)
+colnames(anno_row)[colnames(anno_row) == "icu_status"] <- "ICU status"
+
+pheatmap(
+  as.matrix(expr_mat),
+  scale = "row",  # Row-normalize (z-score)
+  annotation_row = anno_row,
+  annotation_colors = ann_colors,
+  cluster_rows = TRUE,
+  cluster_cols = TRUE,
+  show_rownames = FALSE,  # Hide sample names
+  show_colnames = TRUE,   # Show gene names
+  fontsize = 10,
+  border_color = NA,      # No cell borders
+  color = colorRampPalette(rev(brewer.pal(7, "RdBu")))(100),  # Diverging colors
+  main = sprintf("Heatmap of %d Most Variable Genes", N)
+)
+```
+
+# new plot type
+
+```{r abca1_publication}
+# PUBLICATION-QUALITY ABCA1 VISUALIZATION
+library(tidyverse)
+
+# 1. DATA PREPARATION (REPEATED FOR COMPLETENESS)
+expr_long <- genes_data %>%
+  rename(gene = 1) %>%
+  pivot_longer(-gene, names_to = "participant_id", values_to = "expression") %>%
+  mutate(
+    gene = toupper(trimws(gene)),
+    expression = as.numeric(expression)
+  )
+
+series_matrix_clean <- series_matrix %>%
+  mutate(age = parse_number(as.character(age))) %>%
+  select(participant_id, age)
+
+df_abca1 <- expr_long %>%
+  filter(gene == "ABCA1") %>%
+  left_join(series_matrix_clean, by = "participant_id") %>%
+  drop_na(age, expression)
+
+# 2. QUANTILE DATA RESHAPING
+summ_age_long <- df_abca1 %>%
+  group_by(age) %>%
+  summarise(
+    Q25    = quantile(expression, 0.25, na.rm = TRUE),
+    Median = quantile(expression, 0.50, na.rm = TRUE),
+    Q75    = quantile(expression, 0.75, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  pivot_longer(cols = c(Q25, Median, Q75),
+               names_to = "Quantile", values_to = "Expression")
+
+segments_df <- summ_age_long %>%
+  pivot_wider(names_from = Quantile, values_from = Expression) %>%
+  select(age, Q25, Q75)
+
+# 3. AESTHETIC MAPPINGS
+color_map <- c(
+  "Q25" = "#0072B2",      # Blue
+  "Q75" = "#D55E00",      # Orange
+  "Median" = "black",     # Black
+  "Median trend" = "black"
+)
+fill_map <- c(
+  "Q25" = "#0072B2",
+  "Q75" = "#D55E00",
+  "Median" = "white",
+  "Median trend" = NA
+)
+shape_map <- c(
+  "Q25" = 21,  # Filled circle
+  "Q75" = 21,
+  "Median" = 21,
+  "Median trend" = NA
+)
+
+# 4. FINAL PLOT CONSTRUCTION
+p_abca1 <- ggplot() +
+  # Q25-Q75 segments (gray lines)
+  geom_segment(data = segments_df,
+               aes(x = age, xend = age, y = Q25, yend = Q75),
+               color = "grey60", linewidth = 1) +
+  # Quantile points
+  geom_point(data = summ_age_long,
+             aes(x = age, y = Expression,
+                 color = Quantile, shape = Quantile, fill = Quantile),
+             size = 3, stroke = 0.8) +
+  # Median trend line
+  geom_smooth(
+    data = filter(summ_age_long, Quantile == "Median"),
+    aes(x = age, y = Expression),
+    color = "black", linetype = "dashed",
+    method = "loess", formula = y ~ x,
+    linewidth = 1, se = FALSE
+  ) +
+  # SCALES AND THEMING
+  scale_color_manual(
+    values = color_map,
+    breaks = c("Q25", "Median", "Q75"),
+    labels = c("Q25 (25th percentile)", "Median", "Q75 (75th percentile)")
+  ) +
+  scale_fill_manual(values = fill_map, na.value = NA,
+                    breaks = c("Q25", "Median", "Q75")) +
+  scale_shape_manual(values = shape_map, na.translate = FALSE,
+                     breaks = c("Q25", "Median", "Q75")) +
+  scale_x_continuous(breaks = seq(20, 90, 10)) +
+  scale_y_continuous(limits = c(0, 42), breaks = seq(0, 40, 5)) +
+  labs(
+    title = "ABCA1 Expression by Age",
+    x = "Age (years)",
+    y = "ABCA1 Expression Level",
+    caption = "Gray lines show Q25-Q75 range. Dashed line shows median trend."
+  ) +
+  theme_bw(base_size = 16) +
+  theme(
+    panel.grid.minor = element_blank(),
+    panel.grid.major.x = element_blank(),
+    plot.title = element_text(face = "bold", size = 18, hjust = 0.5),
+    plot.subtitle = element_text(size = 12, hjust = 0.5, color = "gray40"),
+    axis.title = element_text(face = "bold"),
+    axis.text = element_text(color = "black"),
+    legend.position = "right",
+    legend.title = element_text(face = "bold"),
+    legend.text = element_text(size = 12),
+    plot.caption = element_text(color = "gray40", size = 10)
+  ) +
+  guides(
+    color = guide_legend(
+      override.aes = list(
+        shape = c(21, 21, 21),
+        fill = c("#0072B2", "white", "#D55E00"),
+        color = c("#0072B2", "black", "#D55E00"),
+        linetype = c(0, 0, 0)
+      )
+    ),
+    shape = "none",
+    fill = "none"
+  )
+
+# DISPLAY PLOT
+print(p_abca1)
+```
