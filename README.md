@@ -1,6 +1,29 @@
 # R-Foundation-of-Data-Science
 Final project
 
+```filetree
+QBS103-FOUNDATION-OF-DATA-SCIENCE/
+├── README.md
+├── sub1.Rmd
+├── sub2.Rmd
+└── Final_Submission/
+    ├── FINAL_3_R_output.html
+    ├── FINAL_3_R_output.pdf
+    ├── Final_Project_latex_output.pdf
+    ├── latex_proj/
+    │   ├── boxplot.png
+    │   ├── heatmap.png
+    │   ├── histogram.png
+    │   ├── main.tex
+    │   ├── newplot.png
+    │   ├── references.bib
+    │   └── scatter.png
+    └── R_proj/
+        ├── QBS103_GSE157103_genes.csv
+        ├── QBS103_GSE157103_series_matrix.csv
+        └── FINAL_3.Rmd
+```
+
 - Submission 1
 
   Identify one gene, one continuous covariate, and two categorical covariates in the provided dataset. Note: Gene expression data and metadata are in two separate files and will need to be linked.
